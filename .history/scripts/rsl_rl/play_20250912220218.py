@@ -155,25 +155,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
-    printed_debug = False
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
-            if not printed_debug:
-                try:
-                    print(f"[DEBUG] obs.shape={getattr(obs, 'shape', None)}; actions.shape={getattr(actions, 'shape', None)}")
-                    if hasattr(env.unwrapped, 'action_manager'):
-                        print(f"[DEBUG] expected_action_dim={env.unwrapped.action_manager.total_action_dim}")
-                    if hasattr(env.unwrapped, 'num_envs'):
-                        print(f"[DEBUG] num_envs={env.unwrapped.num_envs}")
-                except Exception as e:
-                    print(f"[DEBUG] print failed: {e}")
-                printed_debug = True
-            if isinstance(actions, torch.Tensor) and actions.dim() == 1:
-                actions = actions.unsqueeze(0)
             # env stepping
             obs, _, _, _ = env.step(actions)
         if args_cli.video:

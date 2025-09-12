@@ -20,6 +20,8 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
+# Add new argument for local wandb path
+parser.add_argument("--local_wandb_path", type=str, default=None, help="Path to local wandb run directory.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -42,6 +44,7 @@ import gymnasium as gym
 import os
 import pathlib
 import torch
+import glob
 
 from rsl_rl.runners import OnPolicyRunner
 
@@ -72,7 +75,44 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)
 
-    if args_cli.wandb_path:
+    if args_cli.local_wandb_path:
+        # Handle local wandb directory
+        local_wandb_dir = args_cli.local_wandb_path
+        if not os.path.exists(local_wandb_dir):
+            raise ValueError(f"Local wandb directory does not exist: {local_wandb_dir}")
+        
+        # Look for model files in the local wandb directory
+        files_dir = os.path.join(local_wandb_dir, "files")
+        if not os.path.exists(files_dir):
+            raise ValueError(f"Files directory does not exist: {files_dir}")
+        
+        # Find all model files
+        model_files = glob.glob(os.path.join(files_dir, "model_*.pt"))
+        if not model_files:
+            raise ValueError(f"No model files found in: {files_dir}")
+        
+        # Find the latest model (highest number)
+        def get_model_number(filepath):
+            filename = os.path.basename(filepath)
+            return int(filename.split("_")[1].split(".")[0])
+        
+        latest_model = max(model_files, key=get_model_number)
+        resume_path = latest_model
+        
+        print(f"[INFO]: Loading model checkpoint from local wandb: {resume_path}")
+        
+        if args_cli.motion_file is not None:
+            print(f"[INFO]: Using motion file from CLI: {args_cli.motion_file}")
+            env_cfg.commands.motion.motion_file = args_cli.motion_file
+        else:
+            # Look for motion file in local wandb directory
+            motion_files = glob.glob(os.path.join(files_dir, "*.onnx"))
+            if motion_files:
+                # This might not be the motion file you want, adjust as needed
+                print(f"[INFO]: Found ONNX files in local wandb: {motion_files}")
+            
+    elif args_cli.wandb_path:
+        # Original wandb remote loading code
         import wandb
 
         run_path = args_cli.wandb_path
@@ -106,6 +146,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             env_cfg.commands.motion.motion_file = str(pathlib.Path(art.download()) / "motion.npz")
 
     else:
+        # Original local logs loading code
         print(f"[INFO] Loading experiment from directory: {log_root_path}")
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
@@ -153,7 +194,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     )
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
     # reset environment
-    obs, _ = env.get_observations()
+    _obs_ret = env.get_observations()
+    obs = _obs_ret[0] if isinstance(_obs_ret, tuple) else _obs_ret
     timestep = 0
     printed_debug = False
     # simulate environment
