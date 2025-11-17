@@ -38,7 +38,8 @@ _build
 *.csv
 *.pkl
 *.zarr
-*.npz
+# *.npz
 
 **/assets/
 artifacts/
+.history/
